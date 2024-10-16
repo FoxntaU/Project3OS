@@ -9,8 +9,9 @@ import multiprocessing
 import psutil
 import platform
 import mmap
+import threading
 
-"""
+
 #LECTURA PANDAS
 def read_files(file_path, block_size=4096):
     start_time = datetime.now()
@@ -28,71 +29,17 @@ def read_files(file_path, block_size=4096):
     rss_memory = psutil.Process(pid).memory_info().rss
 
     return data, start_time, end_time, duration, pid, memory_virtual, rss_memory
-"""
 
-def read_files(file_path):
-
-    data_blocks = []
-    start_time = datetime.now()
-    pid = os.getpid()
-
-    with open(file_path, "r") as f:
-        # Mapear el archivo completo a memoria
-        m = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-
-        # Leer el archivo en bloques de 4KB
-        bloque_tamano = 4096
-        while True:
-            bloque = m.read(bloque_tamano)
-            if not bloque:
-                break
-            data_blocks.append(bloque)
-
-    end_time = datetime.now()
-    duration = (end_time - start_time).total_seconds()
-    memory_virtual = psutil.Process(pid).memory_info().vms
-    rss_memory = psutil.Process(pid).memory_info().rss
-
-    return data_blocks, start_time, end_time, duration, pid, memory_virtual, rss_memory
-
-def read_files_sequentially(file_paths):
-    print(f"\nLeyendo los archivos en [bold cyan] sequentially [/bold cyan] mode")
-    start_time_program = datetime.now()
-
-    data_list = []
-    durations = []
-    start_times = []
-    end_times = []
-    pids = []
-    memory_virtuals = []
-    memory_rss =[]
-
-    for file_path in file_paths:
-        data, start_time, end_time, duration, pid, memory_virtual, rss_memory  = read_files(file_path)
-        if data is not None:
-            data_list.append(data)
-            start_times.append(start_time)
-            end_times.append(end_time)
-            durations.append(duration)
-            pids.append(pid)
-            memory_virtuals.append(memory_virtual)
-            memory_rss.append(rss_memory)
-        else: 
-            print(f"[bold red]Error:[/bold red] El archivo {file_path} no pudo ser leído.")
-        
-    end_time_program = datetime.now()
-    
-    print_end("sequentially", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss )
-    save_to_csv("sequentially", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
 
 def check_cpu_affinity():
     p = psutil.Process(os.getpid())
     affinity = p.cpu_affinity()
     print(f"El proceso está asignado a los núcleos: {affinity}")
 
-def read_files_in_same_core(file_paths):
-    print(f"\nLeyendo los archivos en [bold cyan] same core [/bold cyan] mode")
+def read_files_in_unique_process(file_paths):
+    print(f"\nLeyendo los archivos en [bold cyan] unique process [/bold cyan] mode")
     start_time_program = datetime.now()
+
     # Asignar el proceso padre a un solo core
     p = psutil.Process(os.getpid())
     p.cpu_affinity([0])
@@ -106,31 +53,44 @@ def read_files_in_same_core(file_paths):
     memory_virtuals = []
     memory_rss =[]
     
-    with multiprocessing.Pool() as pool:
-        worker_pool = pool._pool # Obtener la lista de workers
-        for worker in worker_pool: # Asignar cada worker a un solo core
-            print(f"Asignando worker {worker.pid} al core 0")
-            psutil.Process(worker.pid).cpu_affinity([0])
-        
-        results = pool.map(read_files, file_paths)
+    # Función wrapper para leer un archivo en un hilo
+    def thread_task(file_path, thread_results, index):
+        result = read_files(file_path)  # Se asume que esta función existe y procesa los archivos
+        thread_results[index] = result  # Guardamos los resultados en la posición correcta
 
-    for i, (data, start_time, end_time, duration, pid, memory_virtual, rss_memory ) in enumerate(results):
-        if data is not None:
+    # Lista para guardar los resultados de los hilos
+    thread_results = [None] * len(file_paths)
+    threads = []
+
+    # Crear y lanzar los hilos para leer los archivos
+    for i, file_path in enumerate(file_paths):
+        t = threading.Thread(target=thread_task, args=(file_path, thread_results, i))
+        threads.append(t)
+        t.start()
+
+    # Esperar a que todos los hilos terminen
+    for t in threads:
+        t.join()
+
+    # Recopilar resultados de cada hilo
+    for result in thread_results:
+        if result is not None:
+            data, start_time, end_time, duration, pid, memory_virtual, rss_memory = result
             data_list.append(data)
-        start_times.append(start_time)
-        end_times.append(end_time)
-        durations.append(duration)
-        pids.append(pid)
-        memory_virtuals.append(memory_virtual)
-        memory_rss.append(rss_memory)
+            start_times.append(start_time)
+            end_times.append(end_time)
+            durations.append(duration)
+            pids.append(pid)
+            memory_virtuals.append(memory_virtual)
+            memory_rss.append(rss_memory)
 
     end_time_program = datetime.now()
-    
-    print_end("same core", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
-    save_to_csv("same_core", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
 
-def read_files_in_multi_core(file_paths):
-    print(f"\nLeyendo los archivos en [bold cyan] multi core [/bold cyan] mode")
+    print_end("unique process", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
+    save_to_csv("unique_process", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
+
+def read_files_in_multi_process(file_paths):
+    print(f"\nLeyendo los archivos en [bold cyan] multi process [/bold cyan] mode")
     start_time_program = datetime.now()
     p = psutil.Process(os.getpid())
     p.cpu_affinity(list(range(psutil.cpu_count()))) 
@@ -160,8 +120,8 @@ def read_files_in_multi_core(file_paths):
 
     end_time_program = datetime.now()
 
-    print_end("multi core", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
-    save_to_csv("multi_core", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
+    print_end("multi process", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
+    save_to_csv("multi_process", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
 
 def show_info_sys():
     print(f"[bold cyan]Tipo de procesador:[/bold cyan] {platform.processor()}")
@@ -233,15 +193,15 @@ def save_to_csv(mode, start_time_program, end_time_program, file_paths, start_ti
 def main():
     parser = argparse.ArgumentParser(description="dataload - Lector de datos.")
     parser.add_argument("-f", "--folder", required=True, help="Carpeta con archivos CSV")
-    parser.add_argument("-s", "--same-core", action="store_true", help="Leer archivos en paralelo en el mismo core")
-    parser.add_argument("-m", "--multi-core", action="store_true", help="Leer archivos en paralelo en múltiples cores")
+    parser.add_argument("-s", "--unique-process", action="store_true", help="Leer archivos en paralelo en el mismo core")
+    parser.add_argument("-m", "--multi-process", action="store_true", help="Leer archivos en paralelo en múltiples cores")
     args = parser.parse_args()
     
     if not os.path.isdir(args.folder):
         print("[bold red]Error:[/bold red] La carpeta especificada no existe.")
         sys.exit(1)
 
-    if args.same_core and args.multi_core:
+    if args.unique_process and args.multi_core:
         print("[bold red]Error:[/bold red] No se pueden usar las opciones -s y -m al mismo tiempo.")
         sys.exit(1)
 
@@ -251,12 +211,11 @@ def main():
         print("[bold red] Error: [/bold red] No se encontraron archivos csv en la carpeta especifica.")
         sys.exit(1)
 
-    if args.same_core:
-        read_files_in_same_core(file_paths)
-    elif args.multi_core:
-        read_files_in_multi_core(file_paths)
-    else:
-        read_files_sequentially(file_paths)
+    if args.unique_process:
+        read_files_in_unique_process(file_paths)
+    elif args.multi_process:
+        read_files_in_multi_process(file_paths)
+   
         
 if __name__ == "__main__":
     main()
