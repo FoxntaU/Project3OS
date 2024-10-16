@@ -10,7 +10,7 @@ import psutil
 import platform
 import mmap
 import threading
-
+from io import StringIO
 
 #LECTURA PANDAS
 def read_files(file_path, block_size=4096):
@@ -85,15 +85,52 @@ def read_files_in_unique_process(file_paths):
             memory_rss.append(rss_memory)
 
     end_time_program = datetime.now()
+    
 
     print_end("unique process", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
     save_to_csv("unique_process", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
 
+#----
+def read_file_in_chunks(file_path, start_line, end_line):
+    """Función que lee un rango específico de líneas de un archivo."""
+    with open(file_path, 'r') as f:
+        lines = f.readlines()[start_line:end_line]  # Lee las líneas del rango especificado
+    return ''.join(lines)  # Unir las líneas en una cadena para convertirlas en DataFrame
+
+def process_file(file_path):
+    """Función que procesa un archivo usando hilos para leerlo en pedazos."""
+    data_chunks = []
+    num_lines_per_thread = 100  # Número de líneas por cada hilo
+    threads = []
+    num_lines_total = sum(1 for _ in open(file_path))  # Total de líneas del archivo
+    num_threads = num_lines_total // num_lines_per_thread + 1  # Determinar cuántos hilos
+
+    def thread_function(start, end):
+        chunk = read_file_in_chunks(file_path, start, end)
+        data_chunks.append(chunk)
+
+    for i in range(num_threads):
+        start = i * num_lines_per_thread
+        end = start + num_lines_per_thread
+        thread = threading.Thread(target=thread_function, args=(start, end))
+        threads.append(thread)
+        thread.start()
+
+    # Esperar a que todos los hilos terminen
+    for thread in threads:
+        thread.join()
+
+    # Unir todos los pedazos y crear un DataFrame de pandas
+    combined_data = ''.join(data_chunks)
+    data = pd.read_csv(StringIO(combined_data))  # Convertir a DataFrame
+    return data
+
 def read_files_in_multi_process(file_paths):
     print(f"\nLeyendo los archivos en [bold cyan] multi process [/bold cyan] mode")
     start_time_program = datetime.now()
+    
     p = psutil.Process(os.getpid())
-    p.cpu_affinity(list(range(psutil.cpu_count()))) 
+    p.cpu_affinity(list(range(psutil.cpu_count())))  # Usar todos los cores disponibles
     check_cpu_affinity()
 
     data_list = []
@@ -102,13 +139,27 @@ def read_files_in_multi_process(file_paths):
     end_times = []
     pids = []
     memory_virtuals = []
-    memory_rss =[]
+    memory_rss = []
+
+    def wrapper_process(file_path):
+        """Envolver la función process_file para medir tiempos y recursos."""
+        start_time = datetime.now()
+        pid = os.getpid()
+
+        data = process_file(file_path)
+
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+        memory_virtual = psutil.Process(pid).memory_info().vms
+        rss_memory = psutil.Process(pid).memory_info().rss
+
+        return data, start_time, end_time, duration, pid, memory_virtual, rss_memory
 
     with multiprocessing.Pool() as pool:
-        results = pool.map(read_files, file_paths)
+        results = pool.map(wrapper_process, file_paths)
 
     for result in results:
-        data, start_time, end_time, duration, pid, memory_virtual, rss_memory  = result
+        data, start_time, end_time, duration, pid, memory_virtual, rss_memory = result
         if data is not None:
             data_list.append(data)
         start_times.append(start_time)
@@ -201,7 +252,7 @@ def main():
         print("[bold red]Error:[/bold red] La carpeta especificada no existe.")
         sys.exit(1)
 
-    if args.unique_process and args.multi_core:
+    if args.unique_process and args.multi_process:
         print("[bold red]Error:[/bold red] No se pueden usar las opciones -s y -m al mismo tiempo.")
         sys.exit(1)
 
