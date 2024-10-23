@@ -36,6 +36,66 @@ def check_cpu_affinity():
     affinity = p.cpu_affinity()
     print(f"El proceso está asignado a los núcleos: {affinity}")
 
+def analice_data(data_dict):
+    all_data = pd.concat(data_dict.values(), ignore_index=True)
+
+    # Obtener los dos videos más populares y dos más impopulares de todos los CSV para 2017 y 2018
+    for year in [2017, 2018]:
+        yearly_data = all_data[all_data['publish_time'].str.startswith(str(year))]
+        if not yearly_data.empty:
+            # Dos videos más populares globalmente
+            popular_videos = yearly_data.sort_values(by='views', ascending=False).head(2)
+            table = Table(title=f"Dos videos más populares globalmente en {year}")
+            table.add_column("Título", justify="left", style="cyan")
+            table.add_column("ID", style="yellow")
+            table.add_column("Vistas", style="magenta")
+            for _, row in popular_videos.iterrows():
+                table.add_row(row['title'], str(row['video_id']), str(row['views']))
+            print(table)
+
+            # Dos videos más impopulares globalmente
+            unpopular_videos = yearly_data.sort_values(by='views', ascending=True).head(2)
+            table = Table(title=f"Dos videos más impopulares globalmente en {year}")
+            table.add_column("Título", justify="left", style="cyan")
+            table.add_column("ID", style="yellow")
+            table.add_column("Vistas", style="magenta")
+            for _, row in unpopular_videos.iterrows():
+                table.add_row(row['title'], str(row['video_id']), str(row['views']))
+            print(table)
+
+    for file_path, data in data_dict.items():
+        print(f"\nAnalizando el archivo: {file_path}")
+        if not data.empty:
+            # Dos videos más populares por región en 2017 y 2018
+            for year in [2017, 2018]:
+                region = os.path.basename(file_path)[:2]  # Usar las primeras dos letras del nombre del archivo como la región
+                data['region'] = region
+                yearly_data = data[data['publish_time'].str.startswith(str(year))]
+                region_data = yearly_data[yearly_data['region'] == region]
+
+                if not region_data.empty:
+                    # Dos videos más populares por región
+                    popular_region_video = region_data.sort_values(by='views', ascending=False).head(2)
+                    table = Table(title=f"Dos videos más populares en la región {region} en {year}")
+                    table.add_column("Título", justify="left", style="cyan")
+                    table.add_column("ID", style="yellow")
+                    table.add_column("Vistas", style="magenta")
+                    for _, row in popular_region_video.iterrows():
+                        table.add_row(row['title'], str(row['video_id']), str(row['views']))
+                    print(table)
+
+                    # Dos videos más impopulares por región
+                    unpopular_region_video = region_data.sort_values(by='views', ascending=True).head(2)
+                    table = Table(title=f"Dos videos más impopulares en la región {region} en {year}")
+                    table.add_column("Título", justify="left", style="cyan")
+                    table.add_column("ID", style="yellow")
+                    table.add_column("Vistas", style="magenta")
+                    for _, row in unpopular_region_video.iterrows():
+                        table.add_row(row['title'], str(row['video_id']), str(row['views']))
+                    print(table)
+
+
+# para cambiar entre multi y unique process: modificar llamada a la función en main().
 def read_files_in_unique_process(file_paths):
     print(f"\nLeyendo los archivos en [bold cyan] unique process [/bold cyan] mode")
     start_time_program = datetime.now()
@@ -45,7 +105,7 @@ def read_files_in_unique_process(file_paths):
     p.cpu_affinity([0])
     check_cpu_affinity()
 
-    data_list = []
+    data_dict = {}
     start_times = []
     end_times = []
     durations = []
@@ -55,8 +115,8 @@ def read_files_in_unique_process(file_paths):
     
     # Función wrapper para leer un archivo en un hilo
     def thread_task(file_path, thread_results, index):
-        result = read_files(file_path)  # Se asume que esta función existe y procesa los archivos
-        thread_results[index] = result  # Guardamos los resultados en la posición correcta
+        result = read_files(file_path)
+        thread_results[index] = result
 
     # Lista para guardar los resultados de los hilos
     thread_results = [None] * len(file_paths)
@@ -73,10 +133,10 @@ def read_files_in_unique_process(file_paths):
         t.join()
 
     # Recopilar resultados de cada hilo
-    for result in thread_results:
+    for i, result in enumerate(thread_results):
         if result is not None:
             data, start_time, end_time, duration, pid, memory_virtual, rss_memory = result
-            data_list.append(data)
+            data_dict[file_paths[i]] = data
             start_times.append(start_time)
             end_times.append(end_time)
             durations.append(duration)
@@ -84,57 +144,18 @@ def read_files_in_unique_process(file_paths):
             memory_virtuals.append(memory_virtual)
             memory_rss.append(rss_memory)
 
+    analice_data(data_dict)
+
     end_time_program = datetime.now()
     
     print_end("unique process", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
     save_to_csv("unique_process", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
 
-def read_file_chunk(file_path, start_line, end_line):
-    """Función que lee un rango específico de líneas de un archivo CSV."""
-    try:
-        return pd.read_csv(file_path, skiprows=start_line, nrows=end_line - start_line, encoding='ISO-8859-1')
-    except pd.errors.EmptyDataError:
-        print(f"Empty data error for lines {start_line} to {end_line} in {file_path}")
-        return pd.DataFrame()  # Devuelve un DataFrame vacío para permitir continuar
-
-
-def process_file(file_path):
-    """Función que procesa un archivo usando hilos para leerlo en pedazos."""
-    data_chunks = []
-    num_lines_per_thread = 10000  # Número de líneas por cada hilo
-    threads = []
-
-    # Determinar el número total de líneas del archivo
-    num_lines_total = sum(1 for _ in open(file_path, encoding='ISO-8859-1'))  # Total de líneas del archivo
-    num_threads = num_lines_total // num_lines_per_thread + 1  # Número de hilos necesarios
-    print(f"\nLeyendo el archivo: {file_path}\nnumero total de lineas: {num_lines_total}\nnumero de hilos: {num_threads}")
-
-    def thread_function(start_line, end_line):
-        chunk = read_file_chunk(file_path, start_line, end_line)  # Leer un fragmento del archivo
-        data_chunks.append(chunk)
-
-    # Crear y lanzar hilos para procesar el archivo en partes
-    for i in range(num_threads):
-        start_line = i * num_lines_per_thread
-        end_line = min(start_line + num_lines_per_thread, num_lines_total)  # Asegura que no se pase del total de líneas
-        thread = threading.Thread(target=thread_function, args=(start_line, end_line))
-        threads.append(thread)
-        thread.start()
-
-    # Esperar a que todos los hilos terminen
-    for thread in threads:
-        thread.join()
-
-    # Concatenar todos los DataFrames en uno solo
-    data = pd.concat(data_chunks, ignore_index=True)
-    return data
-
 def wrapper_process(file_path):
-    """Envolver la función process_file para medir tiempos y recursos."""
     start_time = datetime.now()
     pid = os.getpid()
 
-    data = process_file(file_path)
+    data = read_files(file_path)[0]
 
     end_time = datetime.now()
     duration = (end_time - start_time).total_seconds()
@@ -148,10 +169,10 @@ def read_files_in_multi_process(file_paths):
     start_time_program = datetime.now()
     
     p = psutil.Process(os.getpid())
-    p.cpu_affinity(list(range(psutil.cpu_count())))  # Usar todos los cores disponibles
+    p.cpu_affinity(list(range(psutil.cpu_count())))
     check_cpu_affinity()
 
-    data_list = []
+    data_dict = {}
     durations = []
     start_times = []
     end_times = []
@@ -162,16 +183,18 @@ def read_files_in_multi_process(file_paths):
     with multiprocessing.Pool() as pool:
         results = pool.map(wrapper_process, file_paths)
 
-    for result in results:
+    for i, result in enumerate(results):
         data, start_time, end_time, duration, pid, memory_virtual, rss_memory = result
         if data is not None:
-            data_list.append(data)
+            data_dict[file_paths[i]] = data
         start_times.append(start_time)
         end_times.append(end_time)
         durations.append(duration)
         pids.append(pid)
         memory_virtuals.append(memory_virtual)
         memory_rss.append(rss_memory)
+
+    analice_data(data_dict)
 
     end_time_program = datetime.now()
     
@@ -246,12 +269,16 @@ def save_to_csv(mode, start_time_program, end_time_program, file_paths, start_ti
     print(f"\n[bold green]Resumen guardado en:[/bold green] {output_file}\n")
     
 def main():
+    # Simula los argumentos que normalmente pasarías desde la línea de comandos, para usar multi o unic cambiar -s o -m resprectivamente
+    sys.argv = ['dataload.py', '-m', '-f', './datasets']
+
+    # Argument parser para recibir y procesar los argumentos
     parser = argparse.ArgumentParser(description="dataload - Lector de datos.")
     parser.add_argument("-f", "--folder", required=True, help="Carpeta con archivos CSV")
     parser.add_argument("-s", "--unique-process", action="store_true", help="Leer archivos en paralelo en el mismo core")
     parser.add_argument("-m", "--multi-process", action="store_true", help="Leer archivos en paralelo en múltiples cores")
     args = parser.parse_args()
-    
+
     if not os.path.isdir(args.folder):
         print("[bold red]Error:[/bold red] La carpeta especificada no existe.")
         sys.exit(1)
@@ -261,7 +288,7 @@ def main():
         sys.exit(1)
 
     file_paths = [os.path.join(args.folder, file) for file in os.listdir(args.folder) if file.endswith('.csv')]
-    
+
     if not file_paths:
         print("[bold red] Error: [/bold red] No se encontraron archivos csv en la carpeta especifica.")
         sys.exit(1)
@@ -270,5 +297,7 @@ def main():
         read_files_in_unique_process(file_paths)
     elif args.multi_process:
         read_files_in_multi_process(file_paths)
+
+
 if __name__ == "__main__":
     main()
