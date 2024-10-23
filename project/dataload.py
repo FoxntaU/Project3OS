@@ -151,11 +151,54 @@ def read_files_in_unique_process(file_paths):
     print_end("unique process", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
     save_to_csv("unique_process", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
 
+
+def read_file_chunk(file_path, start_line, end_line):
+    """Función que lee un rango específico de líneas de un archivo CSV."""
+    try:
+        return pd.read_csv(file_path, skiprows=start_line, nrows=end_line - start_line, encoding='ISO-8859-1')
+    except pd.errors.EmptyDataError:
+        print(f"Empty data error for lines {start_line} to {end_line} in {file_path}")
+        return pd.DataFrame()  # Devuelve un DataFrame vacío para permitir continuar
+
+
+def process_file(file_path):
+    """Función que procesa un archivo usando hilos para leerlo en pedazos."""
+    data_chunks = []
+    num_lines_per_thread = 10000  # Número de líneas por cada hilo
+    threads = []
+
+    # Determinar el número total de líneas del archivo
+    num_lines_total = sum(1 for _ in open(file_path, encoding='ISO-8859-1'))  # Total de líneas del archivo
+    num_threads = num_lines_total // num_lines_per_thread + 1  # Número de hilos necesarios
+    print(f"\nLeyendo el archivo: {file_path}\nnumero total de lineas: {num_lines_total}\nnumero de hilos: {num_threads}")
+
+    def thread_function(start_line, end_line):
+        chunk = read_file_chunk(file_path, start_line, end_line)  # Leer un fragmento del archivo
+        data_chunks.append(chunk)
+
+    # Crear y lanzar hilos para procesar el archivo en partes
+    for i in range(num_threads):
+        start_line = i * num_lines_per_thread
+        end_line = min(start_line + num_lines_per_thread, num_lines_total)  # Asegura que no se pase del total de líneas
+        thread = threading.Thread(target=thread_function, args=(start_line, end_line))
+        threads.append(thread)
+        thread.start()
+
+    # Esperar a que todos los hilos terminen
+    for thread in threads:
+        thread.join()
+
+    # Concatenar todos los DataFrames en uno solo
+    data = pd.concat(data_chunks, ignore_index=True)
+    return data
+
+
+
 def wrapper_process(file_path):
     start_time = datetime.now()
     pid = os.getpid()
 
-    data = read_files(file_path)[0]
+    data = process_file(file_path)[0]
 
     end_time = datetime.now()
     duration = (end_time - start_time).total_seconds()
@@ -182,6 +225,8 @@ def read_files_in_multi_process(file_paths):
 
     with multiprocessing.Pool() as pool:
         results = pool.map(wrapper_process, file_paths)
+        #results = pool.map(read_files, file_paths)
+        
 
     for i, result in enumerate(results):
         data, start_time, end_time, duration, pid, memory_virtual, rss_memory = result
