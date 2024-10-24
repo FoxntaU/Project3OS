@@ -133,7 +133,7 @@ def read_files_in_unique_process(file_paths):
         t.join()
 
     # Recopilar resultados de cada hilo
-    for result in thread_results:
+    for i, result in enumerate(thread_results):
         if result is not None:
             data, start_time, end_time, duration, pid, memory_virtual, rss_memory = result
             data_list.append(data)
@@ -226,10 +226,10 @@ def read_files_in_multi_process(file_paths):
     with multiprocessing.Pool() as pool:
         results = pool.map(wrapper_process, file_paths)
 
-    for result in results:
+    for file_path, result in zip(file_paths, results):
         data, start_time, end_time, duration, pid, memory_virtual, rss_memory = result
         if data is not None:
-            data_dict[file_paths[result]] = data
+            data_dict[file_path] = data
             data_list.append(data)
         start_times.append(start_time)
         end_times.append(end_time)
