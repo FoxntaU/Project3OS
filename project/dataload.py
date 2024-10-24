@@ -30,7 +30,6 @@ def read_files(file_path, block_size=4096):
 
     return data, start_time, end_time, duration, pid, memory_virtual, rss_memory
 
-
 def check_cpu_affinity():
     p = psutil.Process(os.getpid())
     affinity = p.cpu_affinity()
@@ -95,7 +94,7 @@ def analice_data(data_dict):
                     print(table)
 
 
-# para cambiar entre multi y unique process: modificar llamada a la función en main().
+
 def read_files_in_unique_process(file_paths):
     print(f"\nLeyendo los archivos en [bold cyan] unique process [/bold cyan] mode")
     start_time_program = datetime.now()
@@ -106,6 +105,7 @@ def read_files_in_unique_process(file_paths):
     check_cpu_affinity()
 
     data_dict = {}
+    data_list = []
     start_times = []
     end_times = []
     durations = []
@@ -115,8 +115,8 @@ def read_files_in_unique_process(file_paths):
     
     # Función wrapper para leer un archivo en un hilo
     def thread_task(file_path, thread_results, index):
-        result = read_files(file_path)
-        thread_results[index] = result
+        result = read_files(file_path)  # Se asume que esta función existe y procesa los archivos
+        thread_results[index] = result  # Guardamos los resultados en la posición correcta
 
     # Lista para guardar los resultados de los hilos
     thread_results = [None] * len(file_paths)
@@ -133,9 +133,10 @@ def read_files_in_unique_process(file_paths):
         t.join()
 
     # Recopilar resultados de cada hilo
-    for i, result in enumerate(thread_results):
+    for result in thread_results:
         if result is not None:
             data, start_time, end_time, duration, pid, memory_virtual, rss_memory = result
+            data_list.append(data)
             data_dict[file_paths[i]] = data
             start_times.append(start_time)
             end_times.append(end_time)
@@ -150,7 +151,6 @@ def read_files_in_unique_process(file_paths):
     
     print_end("unique process", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
     save_to_csv("unique_process", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
-
 
 def read_file_chunk(file_path, start_line, end_line):
     """Función que lee un rango específico de líneas de un archivo CSV."""
@@ -192,13 +192,12 @@ def process_file(file_path):
     data = pd.concat(data_chunks, ignore_index=True)
     return data
 
-
-
 def wrapper_process(file_path):
+    """Envolver la función process_file para medir tiempos y recursos."""
     start_time = datetime.now()
     pid = os.getpid()
 
-    data = process_file(file_path)[0]
+    data = process_file(file_path)
 
     end_time = datetime.now()
     duration = (end_time - start_time).total_seconds()
@@ -212,10 +211,11 @@ def read_files_in_multi_process(file_paths):
     start_time_program = datetime.now()
     
     p = psutil.Process(os.getpid())
-    p.cpu_affinity(list(range(psutil.cpu_count())))
+    p.cpu_affinity(list(range(psutil.cpu_count())))  # Usar todos los cores disponibles
     check_cpu_affinity()
 
     data_dict = {}
+    data_list = []
     durations = []
     start_times = []
     end_times = []
@@ -225,20 +225,19 @@ def read_files_in_multi_process(file_paths):
 
     with multiprocessing.Pool() as pool:
         results = pool.map(wrapper_process, file_paths)
-        #results = pool.map(read_files, file_paths)
-        
 
-    for i, result in enumerate(results):
+    for result in results:
         data, start_time, end_time, duration, pid, memory_virtual, rss_memory = result
         if data is not None:
-            data_dict[file_paths[i]] = data
+            data_dict[file_paths[result]] = data
+            data_list.append(data)
         start_times.append(start_time)
         end_times.append(end_time)
         durations.append(duration)
         pids.append(pid)
         memory_virtuals.append(memory_virtual)
         memory_rss.append(rss_memory)
-
+    
     analice_data(data_dict)
 
     end_time_program = datetime.now()
@@ -314,16 +313,12 @@ def save_to_csv(mode, start_time_program, end_time_program, file_paths, start_ti
     print(f"\n[bold green]Resumen guardado en:[/bold green] {output_file}\n")
     
 def main():
-    # Simula los argumentos que normalmente pasarías desde la línea de comandos, para usar multi o unic cambiar -s o -m resprectivamente
-    sys.argv = ['dataload.py', '-m', '-f', './datasets']
-
-    # Argument parser para recibir y procesar los argumentos
     parser = argparse.ArgumentParser(description="dataload - Lector de datos.")
     parser.add_argument("-f", "--folder", required=True, help="Carpeta con archivos CSV")
     parser.add_argument("-s", "--unique-process", action="store_true", help="Leer archivos en paralelo en el mismo core")
     parser.add_argument("-m", "--multi-process", action="store_true", help="Leer archivos en paralelo en múltiples cores")
     args = parser.parse_args()
-
+    
     if not os.path.isdir(args.folder):
         print("[bold red]Error:[/bold red] La carpeta especificada no existe.")
         sys.exit(1)
@@ -333,7 +328,7 @@ def main():
         sys.exit(1)
 
     file_paths = [os.path.join(args.folder, file) for file in os.listdir(args.folder) if file.endswith('.csv')]
-
+    
     if not file_paths:
         print("[bold red] Error: [/bold red] No se encontraron archivos csv en la carpeta especifica.")
         sys.exit(1)
@@ -342,7 +337,5 @@ def main():
         read_files_in_unique_process(file_paths)
     elif args.multi_process:
         read_files_in_multi_process(file_paths)
-
-
 if __name__ == "__main__":
     main()
