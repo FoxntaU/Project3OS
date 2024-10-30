@@ -40,7 +40,7 @@ Antes de ejecutar el script, asegúrate de tener instalados los siguientes requi
 
 5. **Entrar al folder project y ejecutar**
    ```sh
-   python dataload.py [OPCIONES -s, -m or nothing] -f "C:\Users\nicolas\Desktop\Sistemas Operativos\Project1OS\datasets"
+   python dataload.py [OPCIONES -s, -m or nothing] -f "C:\Users\nicolas\Desktop\U\15vo\Sistemas Operativos\Proyecto3\datasets"
 
 
 ## DESCRIPCIÓN
