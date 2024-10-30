@@ -35,7 +35,7 @@ def check_cpu_affinity():
     affinity = p.cpu_affinity()
     print(f"El proceso está asignado a los núcleos: {affinity}")
 
-def analice_data(data_dict):
+def analize_data(data_dict):
     all_data = pd.concat(data_dict.values(), ignore_index=True)
 
     # Obtener los dos videos más populares y dos más impopulares de todos los CSV para 2017 y 2018
@@ -145,14 +145,17 @@ def read_files_in_unique_process(file_paths):
             memory_virtuals.append(memory_virtual)
             memory_rss.append(rss_memory)
 
-    analice_data(data_dict)
+    analize_data(data_dict)
 
     end_time_program = datetime.now()
     
     print_end("unique process", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
     save_to_csv("unique_process", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
 
+
+# '''
 def read_file_chunk(file_path, start_line, num_lines, is_first_chunk=False):
+    print(f"Reading lines {start_line} to {start_line + num_lines} from {file_path}")
     try:
         if is_first_chunk:
             return pd.read_csv(file_path, skiprows=start_line, nrows=num_lines, encoding='latin1', header=0)
@@ -162,10 +165,34 @@ def read_file_chunk(file_path, start_line, num_lines, is_first_chunk=False):
         print(f"Empty data error for lines {start_line} to {start_line + num_lines} in {file_path}")
         return pd.DataFrame()
 
+'''
+
+file_locks = {}
+
+def get_file_lock(file_path):
+    """Obtiene un lock único para cada archivo."""
+    if file_path not in file_locks:
+        file_locks[file_path] = threading.Lock()
+    return file_locks[file_path]
+
+def read_file_chunk(file_path, start_line, num_lines, is_first_chunk=False):
+    try:
+        # Adquirir el lock del archivo específico antes de leer
+        with get_file_lock(file_path):
+            if is_first_chunk:
+                return pd.read_csv(file_path, skiprows=start_line, nrows=num_lines, encoding='latin1', header=0)
+            else:
+                return pd.read_csv(file_path, skiprows=start_line, nrows=num_lines, encoding='latin1', header=None)
+    except pd.errors.EmptyDataError:
+        print(f"Empty data error for lines {start_line} to {start_line + num_lines} in {file_path}")
+        return pd.DataFrame()
+    
+'''
+
 def process_file(file_path):
     data_chunks = {}
     threads = []
-    num_lines_per_thread = 50000
+    num_lines_per_thread = 10000
     chunk_size = 10**6
     num_lines_total = 0
 
@@ -179,6 +206,8 @@ def process_file(file_path):
 
     def thread_function(index, start_line, num_lines, is_first_chunk):
         chunk = read_file_chunk(file_path, start_line, num_lines, is_first_chunk)
+        # print(f"Thread {index} finished reading lines {start_line} to {start_line + num_lines}")
+        # print(chunk)
         data_chunks[index] = chunk  
 
     # Crear y lanzar hilos
@@ -195,8 +224,22 @@ def process_file(file_path):
         thread.join()
 
     # Concatenar los fragmentos en el orden correcto
-    ordered_chunks = [data_chunks[i] for i in sorted(data_chunks.keys())]
-    return pd.concat(ordered_chunks, ignore_index=True)
+    ordered_chunks = []
+    for i in sorted(data_chunks.keys()):
+        chunk = data_chunks[i]
+        if not chunk.empty:
+            if i == 0:
+                # Guardar las etiquetas de columna del primer DataFrame
+                column_labels = chunk.columns
+            else:
+                # Asignar las etiquetas de columna del primer DataFrame a los demás DataFrames
+                chunk.columns = column_labels
+            ordered_chunks.append(chunk)
+
+    combined_df = pd.concat(ordered_chunks, ignore_index=True)
+
+    return combined_df
+
 
 def wrapper_process(file_path):
     """Envolver la función process_file para medir tiempos y recursos."""
@@ -232,8 +275,8 @@ def read_files_in_multi_process(file_paths):
     with multiprocessing.Pool() as pool:
         results = pool.map(wrapper_process, file_paths)
 
-    print("\nProcesando los resultados...")
-    print( "results", results)
+    # print("\nProcesando los resultados...")
+    # print( "results", results)
 
     for file_path, result in zip(file_paths, results):
         data, start_time, end_time, duration, pid, memory_virtual, rss_memory = result
@@ -247,7 +290,7 @@ def read_files_in_multi_process(file_paths):
         memory_virtuals.append(memory_virtual)
         memory_rss.append(rss_memory)
     
-    analice_data(data_dict)
+    analize_data(data_dict)
 
     end_time_program = datetime.now()
     
