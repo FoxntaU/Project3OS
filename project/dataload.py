@@ -35,12 +35,18 @@ def check_cpu_affinity():
     affinity = p.cpu_affinity()
     print(f"El proceso está asignado a los núcleos: {affinity}")
 
-def analice_data(data_dict):
+def analize_data(data_dict):
     all_data = pd.concat(data_dict.values(), ignore_index=True)
+
+    # Eliminar filas con 'publish_time' nulo y asegurarse de que sea de tipo cadena
+    all_data = all_data.dropna(subset=['publish_time'])
+    all_data['publish_time'] = all_data['publish_time'].astype(str)
 
     # Obtener los dos videos más populares y dos más impopulares de todos los CSV para 2017 y 2018
     for year in [2017, 2018]:
-        yearly_data = all_data[all_data['publish_time'].str.startswith(str(year))]
+        # Filtrar solo las filas donde 'publish_time' comience con el año
+        yearly_data = all_data[all_data['publish_time'].str.startswith(str(year), na=False)]
+
         if not yearly_data.empty:
             # Dos videos más populares globalmente
             popular_videos = yearly_data.sort_values(by='views', ascending=False).head(2)
@@ -69,7 +75,7 @@ def analice_data(data_dict):
             for year in [2017, 2018]:
                 region = os.path.basename(file_path)[:2]  # Usar las primeras dos letras del nombre del archivo como la región
                 data['region'] = region
-                yearly_data = data[data['publish_time'].str.startswith(str(year))]
+                yearly_data = data[data['publish_time'].str.startswith(str(year), na=False)]
                 region_data = yearly_data[yearly_data['region'] == region]
 
                 if not region_data.empty:
@@ -92,6 +98,7 @@ def analice_data(data_dict):
                     for _, row in unpopular_region_video.iterrows():
                         table.add_row(row['title'], str(row['video_id']), str(row['views']))
                     print(table)
+
 
 
 
@@ -145,7 +152,7 @@ def read_files_in_unique_process(file_paths):
             memory_virtuals.append(memory_virtual)
             memory_rss.append(rss_memory)
 
-    analice_data(data_dict)
+    analize_data(data_dict)
 
     end_time_program = datetime.now()
     
@@ -232,13 +239,17 @@ def read_files_in_multi_process(file_paths):
     with multiprocessing.Pool() as pool:
         results = pool.map(wrapper_process, file_paths)
 
+<<<<<<< HEAD
     print("\nProcesando los resultados...")
     print( "results", results)
 
     for file_path, result in zip(file_paths, results):
+=======
+    for i, result in enumerate(results):
+>>>>>>> 68f00a93d4d27e7bcc8f6738d470160b0f67a94e
         data, start_time, end_time, duration, pid, memory_virtual, rss_memory = result
         if data is not None:
-            data_dict[file_path] = data
+            data_dict[file_paths[i]] = data
             data_list.append(data)
         start_times.append(start_time)
         end_times.append(end_time)
@@ -246,9 +257,9 @@ def read_files_in_multi_process(file_paths):
         pids.append(pid)
         memory_virtuals.append(memory_virtual)
         memory_rss.append(rss_memory)
-    
-    analice_data(data_dict)
 
+    analize_data(data_dict)
+ 
     end_time_program = datetime.now()
     
     print_end("multi process", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
