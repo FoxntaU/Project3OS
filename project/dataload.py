@@ -153,9 +153,8 @@ def read_files_in_unique_process(file_paths):
     save_to_csv("unique_process", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
 
 
-# '''
 def read_file_chunk(file_path, start_line, num_lines, is_first_chunk=False):
-    print(f"Reading lines {start_line} to {start_line + num_lines} from {file_path}")
+    # print(f"Reading lines {start_line} to {start_line + num_lines} from {file_path}")
     try:
         if is_first_chunk:
             return pd.read_csv(file_path, skiprows=start_line, nrows=num_lines, encoding='latin1', header=0)
@@ -164,30 +163,6 @@ def read_file_chunk(file_path, start_line, num_lines, is_first_chunk=False):
     except pd.errors.EmptyDataError:
         print(f"Empty data error for lines {start_line} to {start_line + num_lines} in {file_path}")
         return pd.DataFrame()
-
-'''
-
-file_locks = {}
-
-def get_file_lock(file_path):
-    """Obtiene un lock único para cada archivo."""
-    if file_path not in file_locks:
-        file_locks[file_path] = threading.Lock()
-    return file_locks[file_path]
-
-def read_file_chunk(file_path, start_line, num_lines, is_first_chunk=False):
-    try:
-        # Adquirir el lock del archivo específico antes de leer
-        with get_file_lock(file_path):
-            if is_first_chunk:
-                return pd.read_csv(file_path, skiprows=start_line, nrows=num_lines, encoding='latin1', header=0)
-            else:
-                return pd.read_csv(file_path, skiprows=start_line, nrows=num_lines, encoding='latin1', header=None)
-    except pd.errors.EmptyDataError:
-        print(f"Empty data error for lines {start_line} to {start_line + num_lines} in {file_path}")
-        return pd.DataFrame()
-    
-'''
 
 def process_file(file_path):
     data_chunks = {}
@@ -202,7 +177,7 @@ def process_file(file_path):
 
     num_threads = (num_lines_total + num_lines_per_thread - 1) // num_lines_per_thread
 
-    print(f"\nLeyendo el archivo: {file_path}\nNúmero total de líneas: {num_lines_total}\nNúmero de hilos: {num_threads}")
+    # print(f"\nLeyendo el archivo: {file_path}\nNúmero total de líneas: {num_lines_total}\nNúmero de hilos: {num_threads}")
 
     def thread_function(index, start_line, num_lines, is_first_chunk):
         chunk = read_file_chunk(file_path, start_line, num_lines, is_first_chunk)
