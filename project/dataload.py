@@ -93,6 +93,47 @@ def analize_data(data_dict):
                         table.add_row(row['title'], str(row['video_id']), str(row['views']))
                     print(table)
 
+def read_files_sequentially(file_paths):
+    print(f"\nLeyendo los archivos en [bold cyan] sequentially [/bold cyan] mode")
+    start_time_program = datetime.now()
+    p = psutil.Process(os.getpid())
+
+    cpu= [p.cpu_affinity() for _ in range(len(file_paths))]
+    data_list = []
+    durations = []
+    start_times = []
+    end_times = []
+    pids = []
+    memory_virtuals = []
+    memory_rss =[]
+    data_dict = {}
+
+    for i,file_path in enumerate(file_paths):
+        data, start_time, end_time, duration, pid, memory_virtual, rss_memory  = read_files(file_path)
+        if data is not None:
+            data_dict[file_paths[i]] = data
+            data_list.append(data)
+            start_times.append(start_time)
+            end_times.append(end_time)
+            durations.append(duration)
+            pids.append(pid)
+            memory_virtuals.append(memory_virtual)
+            memory_rss.append(rss_memory)
+        else: 
+            print(f"[bold red]Error:[/bold red] El archivo {file_path} no pudo ser leído.")
+        
+    end_time_program = datetime.now()
+
+    analize_data(data_dict)
+    
+    print_end("sequentially", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss, cpu )
+    save_to_csv("sequentially", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
+
+
+def get_least_busy_core():
+    cpu_percentages = psutil.cpu_percent(percpu=True)
+    least_busy_core = cpu_percentages.index(min(cpu_percentages))
+    return least_busy_core
 
 
 def read_files_in_unique_process(file_paths):
@@ -101,7 +142,7 @@ def read_files_in_unique_process(file_paths):
 
     # Asignar el proceso padre a un solo core
     p = psutil.Process(os.getpid())
-    p.cpu_affinity([0])
+    p.cpu_affinity([get_least_busy_core()])
     check_cpu_affinity()
 
     data_dict = {}
@@ -148,8 +189,11 @@ def read_files_in_unique_process(file_paths):
     analize_data(data_dict)
 
     end_time_program = datetime.now()
+
+    cpu = [p.cpu_affinity()[0] for _ in range(len(file_paths))]
+    print(cpu)
     
-    print_end("unique process", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
+    print_end("unique process", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss, cpu)
     save_to_csv("unique_process", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
 
 
@@ -167,7 +211,7 @@ def read_file_chunk(file_path, start_line, num_lines, is_first_chunk=False):
 def process_file(file_path):
     data_chunks = {}
     threads = []
-    num_lines_per_thread = 10000
+    num_lines_per_thread = 20000
     chunk_size = 10**6
     num_lines_total = 0
 
@@ -220,6 +264,9 @@ def wrapper_process(file_path):
     """Envolver la función process_file para medir tiempos y recursos."""
     start_time = datetime.now()
     pid = os.getpid()
+    p = psutil.Process(pid)
+    cpu = p.cpu_affinity()
+    print(f"Procesando el archivo {file_path} en el core {cpu}")
 
     data = process_file(file_path)
 
@@ -228,7 +275,7 @@ def wrapper_process(file_path):
     memory_virtual = psutil.Process(pid).memory_info().vms
     rss_memory = psutil.Process(pid).memory_info().rss
 
-    return data, start_time, end_time, duration, pid, memory_virtual, rss_memory
+    return data, start_time, end_time, duration, pid, memory_virtual, rss_memory, cpu
 
 def read_files_in_multi_process(file_paths):
     print(f"\nLeyendo los archivos en [bold cyan] multi process [/bold cyan] mode")
@@ -246,6 +293,7 @@ def read_files_in_multi_process(file_paths):
     pids = []
     memory_virtuals = []
     memory_rss = []
+    cpu = []
 
     with multiprocessing.Pool() as pool:
         results = pool.map(wrapper_process, file_paths)
@@ -254,7 +302,7 @@ def read_files_in_multi_process(file_paths):
     # print( "results", results)
 
     for file_path, result in zip(file_paths, results):
-        data, start_time, end_time, duration, pid, memory_virtual, rss_memory = result
+        data, start_time, end_time, duration, pid, memory_virtual, rss_memory, affinity = result
         if data is not None:
             data_dict[file_path] = data
             data_list.append(data)
@@ -264,12 +312,13 @@ def read_files_in_multi_process(file_paths):
         pids.append(pid)
         memory_virtuals.append(memory_virtual)
         memory_rss.append(rss_memory)
+        cpu.append(affinity)
     
     analize_data(data_dict)
 
     end_time_program = datetime.now()
     
-    print_end("multi process", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
+    print_end("multi process", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss, cpu)
     save_to_csv("multi_process", start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss)
 
 def show_info_sys():
@@ -281,13 +330,14 @@ def show_info_sys():
     print(f"[bold cyan]Numero de CPUs:[/bold cyan] {multiprocessing.cpu_count()}")
     
 
-def print_end(mode, start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss):
+def print_end(mode, start_time_program, end_time_program, file_paths, start_times, end_times, durations, pids, memory_virtuals, memory_rss, cpu):
     print("\n")
     print("[bold]Información del sistema[/bold]")
     show_info_sys()
     table = Table(title="Resumen de carga de archivos")
     table.add_column("Archivo", justify="left", style="cyan", no_wrap=True)
     table.add_column("PID", style="yellow")
+    table.add_column("CPU", style="magenta")
     table.add_column("Hora de inicio", style="magenta")
     table.add_column("Hora de finalización", style="magenta")
     table.add_column("Duración (s)", style="green")
@@ -298,6 +348,7 @@ def print_end(mode, start_time_program, end_time_program, file_paths, start_time
         table.add_row(
             os.path.basename(file_path),
             str(pids[i]),
+            str(cpu[i]),
             start_times[i].strftime("%H:%M:%S.%f"),
             end_times[i].strftime("%H:%M:%S.%f"),
             f"{durations[i]:.6f}",
@@ -364,5 +415,8 @@ def main():
         read_files_in_unique_process(file_paths)
     elif args.multi_process:
         read_files_in_multi_process(file_paths)
+    else:
+        read_files_sequentially(file_paths)
+
 if __name__ == "__main__":
     main()
