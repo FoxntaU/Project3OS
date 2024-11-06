@@ -21,7 +21,7 @@ def read_files(file_path, block_size=4096):
         chunks = pd.read_csv(file_path, encoding='latin1', chunksize=block_size)
         data = pd.concat(chunks, ignore_index=True)
     except pd.errors.EmptyDataError:
-        data = pd.DataFrame()  # Devuelve un DataFrame vacío en caso de error
+        data = pd.DataFrame()  
 
     end_time = datetime.now()
     duration = (end_time - start_time).total_seconds()
@@ -38,11 +38,9 @@ def check_cpu_affinity():
 def analize_data(data_dict):
     all_data = pd.concat(data_dict.values(), ignore_index=True)
 
-    # Obtener los dos videos más populares y dos más impopulares de todos los CSV para 2017 y 2018
     for year in [2017, 2018]:
         yearly_data = all_data[all_data['publish_time'].str.startswith(str(year))]
         if not yearly_data.empty:
-            # Dos videos más populares globalmente
             popular_videos = yearly_data.sort_values(by='views', ascending=False).head(2)
             table = Table(title=f"Dos videos más populares globalmente en {year}")
             table.add_column("Título", justify="left", style="cyan")
@@ -52,7 +50,6 @@ def analize_data(data_dict):
                 table.add_row(row['title'], str(row['video_id']), str(row['views']))
             print(table)
 
-            # Dos videos más impopulares globalmente
             unpopular_videos = yearly_data.sort_values(by='views', ascending=True).head(2)
             table = Table(title=f"Dos videos más impopulares globalmente en {year}")
             table.add_column("Título", justify="left", style="cyan")
@@ -65,15 +62,13 @@ def analize_data(data_dict):
     for file_path, data in data_dict.items():
         print(f"\nAnalizando el archivo: {file_path}")
         if not data.empty:
-            # Dos videos más populares por región en 2017 y 2018
             for year in [2017, 2018]:
-                region = os.path.basename(file_path)[:2]  # Usar las primeras dos letras del nombre del archivo como la región
+                region = os.path.basename(file_path)[:2]  
                 data['region'] = region
                 yearly_data = data[data['publish_time'].str.startswith(str(year))]
                 region_data = yearly_data[yearly_data['region'] == region]
 
                 if not region_data.empty:
-                    # Dos videos más populares por región
                     popular_region_video = region_data.sort_values(by='views', ascending=False).head(2)
                     table = Table(title=f"Dos videos más populares en la región {region} en {year}")
                     table.add_column("Título", justify="left", style="cyan")
@@ -83,7 +78,6 @@ def analize_data(data_dict):
                         table.add_row(row['title'], str(row['video_id']), str(row['views']))
                     print(table)
 
-                    # Dos videos más impopulares por región
                     unpopular_region_video = region_data.sort_values(by='views', ascending=True).head(2)
                     table = Table(title=f"Dos videos más impopulares en la región {region} en {year}")
                     table.add_column("Título", justify="left", style="cyan")
@@ -140,7 +134,6 @@ def read_files_in_unique_process(file_paths):
     print(f"\nLeyendo los archivos en [bold cyan] unique process [/bold cyan] mode")
     start_time_program = datetime.now()
 
-    # Asignar el proceso padre a un solo core
     p = psutil.Process(os.getpid())
     p.cpu_affinity([get_least_busy_core()])
     check_cpu_affinity()
@@ -154,26 +147,21 @@ def read_files_in_unique_process(file_paths):
     memory_virtuals = []
     memory_rss =[]
     
-    # Función wrapper para leer un archivo en un hilo
     def thread_task(file_path, thread_results, index):
-        result = read_files(file_path)  # Se asume que esta función existe y procesa los archivos
-        thread_results[index] = result  # Guardamos los resultados en la posición correcta
+        result = read_files(file_path)  
+        thread_results[index] = result  
 
-    # Lista para guardar los resultados de los hilos
     thread_results = [None] * len(file_paths)
     threads = []
 
-    # Crear y lanzar los hilos para leer los archivos
     for i, file_path in enumerate(file_paths):
         t = threading.Thread(target=thread_task, args=(file_path, thread_results, i))
         threads.append(t)
         t.start()
 
-    # Esperar a que todos los hilos terminen
     for t in threads:
         t.join()
 
-    # Recopilar resultados de cada hilo
     for i, result in enumerate(thread_results):
         if result is not None:
             data, start_time, end_time, duration, pid, memory_virtual, rss_memory = result
@@ -214,21 +202,16 @@ def process_file(file_path):
     num_lines_per_thread = 20000
     chunk_size = 10**6
     num_lines_total = 0
-
     # Calcular el número total de líneas
     for chunk in pd.read_csv(file_path, chunksize=chunk_size, encoding='latin1'):
         num_lines_total += len(chunk)
-
     num_threads = (num_lines_total + num_lines_per_thread - 1) // num_lines_per_thread
-
     # print(f"\nLeyendo el archivo: {file_path}\nNúmero total de líneas: {num_lines_total}\nNúmero de hilos: {num_threads}")
-
     def thread_function(index, start_line, num_lines, is_first_chunk):
         chunk = read_file_chunk(file_path, start_line, num_lines, is_first_chunk)
         # print(f"Thread {index} finished reading lines {start_line} to {start_line + num_lines}")
         # print(chunk)
         data_chunks[index] = chunk  
-
     # Crear y lanzar hilos
     for i in range(num_threads):
         start_line = i * num_lines_per_thread   
@@ -237,26 +220,20 @@ def process_file(file_path):
         thread = threading.Thread(target=thread_function, args=(i, start_line, end_line - start_line, is_first_chunk))
         threads.append(thread)
         thread.start()
-
     # Esperar a que todos los hilos terminen
     for thread in threads:
         thread.join()
-
     # Concatenar los fragmentos en el orden correcto
     ordered_chunks = []
     for i in sorted(data_chunks.keys()):
         chunk = data_chunks[i]
         if not chunk.empty:
             if i == 0:
-                # Guardar las etiquetas de columna del primer DataFrame
                 column_labels = chunk.columns
             else:
-                # Asignar las etiquetas de columna del primer DataFrame a los demás DataFrames
                 chunk.columns = column_labels
             ordered_chunks.append(chunk)
-
     combined_df = pd.concat(ordered_chunks, ignore_index=True)
-
     return combined_df
 
 
@@ -282,7 +259,7 @@ def read_files_in_multi_process(file_paths):
     start_time_program = datetime.now()
     
     p = psutil.Process(os.getpid())
-    p.cpu_affinity(list(range(psutil.cpu_count())))  # Usar todos los cores disponibles
+    p.cpu_affinity(list(range(psutil.cpu_count())))  
     check_cpu_affinity()
 
     data_dict = {}
@@ -297,9 +274,6 @@ def read_files_in_multi_process(file_paths):
 
     with multiprocessing.Pool() as pool:
         results = pool.map(wrapper_process, file_paths)
-
-    # print("\nProcesando los resultados...")
-    # print( "results", results)
 
     for file_path, result in zip(file_paths, results):
         data, start_time, end_time, duration, pid, memory_virtual, rss_memory, affinity = result
